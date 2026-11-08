@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tetris Game Boy</title>
+<style>
+:root{--bg:#d9d7cf;--shell:#c9c6bd;--shade:#a8a59b;--bezel:#5c5f72;--btn:#2b2b33;--ab:#9b2257;--ink:#2b2b33;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17171b;--shell:#b9b6ad;--shade:#8f8c83}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none}
+html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;font-family:system-ui,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+.gb{background:var(--shell);border-radius:14px 14px 64px 14px;padding:14px 16px 22px;width:min(96vw,440px);box-shadow:inset -4px -4px 0 var(--shade),0 6px 0 rgba(0,0,0,.25)}
+.bez{background:var(--bezel);border-radius:10px 10px 36px 10px;padding:12px 16px 10px;display:flex;flex-direction:column;align-items:center}
+.scr{width:min(70vw,calc((100dvh - 330px)*.8333),340px);border:3px solid #2b2d3a;background:#9bbc0f}
+canvas{display:block;width:100%;image-rendering:pixelated}
+.lbl{color:#c8c9d6;font:italic 700 11px system-ui,sans-serif;letter-spacing:.5px;margin-top:6px}
+.ctl{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:0 6px}
+.dp{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px)}
+.dp button{background:var(--btn);border:0;padding:0;color:#777;font-size:15px}
+.dp .u{grid-area:1/2;border-radius:8px 8px 0 0;opacity:.6}
+.dp .l{grid-area:2/1;border-radius:8px 0 0 8px}
+.dp .m{grid-area:2/2;background:var(--btn)}
+.dp .r{grid-area:2/3;border-radius:0 8px 8px 0}
+.dp .d{grid-area:3/2;border-radius:0 0 8px 8px}
+.ab{display:flex;gap:16px;transform:rotate(-22deg);margin-right:4px}
+.ab button{width:56px;height:56px;border-radius:50%;background:var(--ab);border:0;box-shadow:inset -3px -3px 0 rgba(0,0,0,.3);color:#e9c3d3;font:700 14px system-ui}
+.ab button:nth-child(2){margin-top:-6px}
+.ss{display:flex;justify-content:center;gap:26px;margin-top:20px;transform:rotate(-22deg)}
+.ss div{text-align:center;color:#3a3a44;font:700 10px system-ui}
+.ss button{display:block;width:52px;height:14px;border-radius:7px;background:#8d8a82;border:0;margin:0 auto 4px}
+.dp button:active,.ab button:active,.ss button:active{filter:brightness(1.5)}
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#c9c6bd">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tetris">
+</head>
+<body>
+<div class="gb">
+ <div class="bez">
+  <div class="scr"><canvas id="c" width="240" height="288"></canvas></div>
+  <div class="lbl">DOT MATRIX WITH STEREO SOUND</div>
+ </div>
+ <div class="ctl">
+  <div class="dp">
+   <button class="u" data-k="up"></button><button class="l" data-k="left">◀</button><button class="m"></button><button class="r" data-k="right">▶</button><button class="d" data-k="down">▼</button>
+  </div>
+  <div class="ab"><button data-k="b">B</button><button data-k="a">A</button></div>
+ </div>
+ <div class="ss">
+  <div><button data-k="select"></button>SELECT</div>
+  <div><button data-k="start"></button>START</div>
+ </div>
+</div>
+<script>
+const cv=document.getElementById('c'),x=cv.getContext('2d');
+const COLS=10,ROWS=18,C=16,G=['#9bbc0f','#8bac0f','#306230','#0f380f'];
+const SH=[[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],[[1,1],[1,1]],[[0,1,0],[1,1,1],[0,0,0]],[[0,1,1],[1,1,0],[0,0,0]],[[1,1,0],[0,1,1],[0,0,0]],[[1,0,0],[1,1,1],[0,0,0]],[[0,0,1],[1,1,1],[0,0,0]]];
+const FR=[48,44,40,36,32,29,26,23,20,17,15,13,11,10,9,8,7,6,5,4,3];
+let board,cur,nextT,prevT=-1,score,lines,level,state='title',acc=0,ct=0,full=[],last=0,snd=true,best=0;
+const held={};let AC;
+function beep(f,d,ty){if(!snd)return;try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain();o.type=ty||'square';o.frequency.value=f;g.gain.value=.04;o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d)}catch(e){}}
+function vib(n){try{navigator.vibrate&&navigator.vibrate(n)}catch(e){}}
+function rnd(){let t=Math.floor(Math.random()*7);if(t===prevT)t=Math.floor(Math.random()*7);prevT=t;return t}
+function newGame(){board=Array.from({length:ROWS},()=>Array(COLS).fill(0));score=0;lines=0;level=0;acc=0;nextT=rnd();spawn();if(state!=='over')state='play'}
+function spawn(){const t=nextT,m=SH[t].map(r=>r.slice());cur={t,m,x:Math.floor((COLS-m.length)/2),y:t===0?-1:0};nextT=rnd();if(hit(cur.m,cur.x,cur.y)){state='over';best=Math.max(best,score);beep(110,.5,'sawtooth')}}
+function hit(m,px,py){for(let r=0;r<m.length;r++)for(let c=0;c<m.length;c++)if(m[r][c]){const nx=px+c,ny=py+r;if(nx<0||nx>=COLS||ny>=ROWS)return true;if(ny>=0&&board[ny][nx])return true}return false}
+function rot(m,cw){const n=m.length,o=m.map(r=>r.slice());for(let r=0;r<n;r++)for(let c=0;c<n;c++){if(cw)o[c][n-1-r]=m[r][c];else o[n-1-c][r]=m[r][c]}return o}
+function move(dx,dy){if(!hit(cur.m,cur.x+dx,cur.y+dy)){cur.x+=dx;cur.y+=dy;return true}return false}
+function lock(){for(let r=0;r<cur.m.length;r++)for(let c=0;c<cur.m.length;c++)if(cur.m[r][c]&&cur.y+r>=0)board[cur.y+r][cur.x+c]=cur.t+1;
+ full=[];for(let r=0;r<ROWS;r++)if(board[r].every(v=>v))full.push(r);
+ if(full.length){state='clear';ct=450;beep(full.length===4?880:660,.25);vib(full.length===4?[40,30,40]:25)}else{beep(180,.06);spawn()}}
+function finishClear(){full.forEach(r=>{board.splice(r,1);board.unshift(Array(COLS).fill(0))});
+ score+=[0,40,100,300,1200][full.length]*(level+1);lines+=full.length;level=Math.min(20,Math.floor(lines/5));full=[];state='play';acc=0;spawn()}
+function act(k){if(state!=='play')return;
+ if(k==='left'){if(move(-1,0))beep(300,.02)}
+ else if(k==='right'){if(move(1,0))beep(300,.02)}
+ else if(k==='down'){if(move(0,1)){score++;acc=0}else{lock()}}
+ else if(k==='a'||k==='b'){const m=rot(cur.m,k==='a');if(!hit(m,cur.x,cur.y)){cur.m=m;beep(520,.03)}}}
+function press(k){
+ if(k==='start'){if(state==='title'||state==='over'){state='play';newGame();beep(440,.1)}else if(state==='play')state='pause';else if(state==='pause')state='play';return}
+ if(k==='select'){snd=!snd;return}
+ if(['left','right','down'].includes(k)){act(k);held[k]=performance.now()+170}else act(k)}
+function release(k){delete held[k]}
+document.querySelectorAll('[data-k]').forEach(b=>{const k=b.dataset.k;
+ b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);press(k)});
+ ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,()=>release(k)))});
+const KM={ArrowLeft:'left',ArrowRight:'right',ArrowDown:'down',ArrowUp:'up',KeyZ:'b',KeyX:'a',Enter:'start',Space:'start',ShiftRight:'select'};
+addEventListener('keydown',e=>{const k=KM[e.code];if(k&&!e.repeat){e.preventDefault();press(k)}});
+addEventListener('keyup',e=>{const k=KM[e.code];if(k)release(k)});
+function tile(px,py,s,t){const k=t%3;x.fillStyle=G[3];
+ if(k===0){x.fillRect(px,py,s,s);x.fillStyle=G[0];x.fillRect(px+2,py+2,2,2)}
+ else if(k===1){x.fillRect(px,py,s,s);x.fillStyle=G[2];x.fillRect(px+2,py+2,s-4,s-4);x.fillStyle=G[1];x.fillRect(px+4,py+4,s-8,s-8)}
+ else{x.fillRect(px,py,s,s);x.fillStyle=G[0];x.fillRect(px+1,py+1,s-2,s-2);x.fillStyle=G[3];x.fillRect(px+4,py+4,s-8,s-8)}}
+function txt(s,px,py,sz,al){x.font='bold '+(sz||10)+'px monospace';x.textBaseline='top';x.textAlign=al||'left';x.fillStyle=G[3];x.fillText(s,px,py)}
+function draw(now){x.fillStyle=G[0];x.fillRect(0,0,240,288);
+ x.fillStyle=G[3];x.fillRect(160,0,2,288);x.fillRect(164,0,1,288);
+ for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)if(board&&board[r][c]){
+  if(state==='clear'&&full.includes(r)){x.fillStyle=Math.floor(now/90)%2?G[3]:G[0];x.fillRect(c*C,r*C,C,C)}else tile(c*C,r*C,C,board[r][c]-1)}
+ if(cur&&(state==='play'||state==='pause'||state==='over')&&state!=='pause')for(let r=0;r<cur.m.length;r++)for(let c=0;c<cur.m.length;c++)if(cur.m[r][c]&&cur.y+r>=0)tile((cur.x+c)*C,(cur.y+r)*C,C,cur.t);
+ txt('SCORE',170,14,10);txt(String(score||0).padStart(6,'0'),170,28,10);
+ txt('NIVEAU',170,62,10);txt(String(level||0).padStart(2,'0'),170,76,10);
+ txt('LIGNES',170,106,10);txt(String(lines||0).padStart(3,'0'),170,120,10);
+ txt('SUIVANT',170,152,10);x.fillStyle=G[3];x.fillRect(170,168,64,52);x.fillStyle=G[0];x.fillRect(172,170,60,48);
+ if(nextT!==undefined&&state!=='title'){const m=SH[nextT],n=m.length,s=10,ox=202-n*s/2,oy=194-n*s/2;for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(m[r][c])tile(ox+c*s,oy+r*s,s,nextT)}
+ if(best)txt('MAX '+best,170,236,10);
+ if(state==='title'){x.fillStyle=G[0];x.fillRect(0,0,160,288);txt('TETRIS',80,80,26,'center');
+  x.fillStyle=G[3];for(let i=0;i<7;i++){tile(16+i*18,126,16,i)}
+  if(Math.floor(now/500)%2)txt('APPUYEZ',80,190,12,'center'),txt('START',80,206,12,'center');
+  txt('A/B tourner',80,250,10,'center');txt('◀ ▶ ▼ bouger',80,264,10,'center')}
+ if(state==='pause'){x.fillStyle=G[0];x.fillRect(30,120,100,40);x.strokeStyle=G[3];x.lineWidth=2;x.strokeRect(30,120,100,40);txt('PAUSE',80,132,16,'center')}
+ if(state==='over'){x.fillStyle=G[0];x.fillRect(14,110,132,64);x.strokeStyle=G[3];x.lineWidth=2;x.strokeRect(14,110,132,64);txt('GAME OVER',80,122,14,'center');txt('START: rejouer',80,146,10,'center')}}
+function frame(now){const dt=Math.min(now-last,100);last=now;
+ if(state==='play'){for(const k in held){if(now>=held[k]){act(k);held[k]=now+(k==='down'?45:55)}}
+  acc+=dt;if(acc>=FR[level]*16.7){acc=0;if(!move(0,1))lock()}}
+ else if(state==='clear'){ct-=dt;if(ct<=0)finishClear()}
+ draw(now);requestAnimationFrame(frame)}
+requestAnimationFrame(t=>{last=t;frame(t)});
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
